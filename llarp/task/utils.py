@@ -15,7 +15,8 @@ from habitat.tasks.rearrange.multi_task.rearrange_pddl import (
     ExprType, PddlEntity, SimulatorObjectType)
 from transformers import (AutoConfig, AutoModelForSeq2SeqLM, AutoTokenizer,
                           LlamaForCausalLM, LlamaModel, LlamaTokenizer,
-                          T5Model)
+                          PhiModel, PhiForCausalLM, PhiConfig, CodeGenTokenizer,
+                          T5Model,)
 
 import llarp.config
 import llarp.dataset
@@ -123,8 +124,8 @@ def get_pddl(task_config, all_cats, obj_cats) -> PddlDomain:
 
 
 def get_parser(llm_id):
-    if "llama" in llm_id.lower():
-        tokenizer = LlamaTokenizer.from_pretrained(llm_id)
+    if "llama" in llm_id.lower() or "phi" in llm_id.lower():
+        tokenizer = CodeGenTokenizer.from_pretrained(llm_id)
         # llama has no pad token by default. As per this thread:
         # https://github.com/huggingface/transformers/issues/22312 we should
         # set pad token manually.

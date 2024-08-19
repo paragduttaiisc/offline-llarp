@@ -14,9 +14,9 @@ from peft import LoraConfig, TaskType, get_peft_model
 from transformers import (AutoConfig, AutoModel, AutoModelForCausalLM,
                           AutoModelForSeq2SeqLM, AutoTokenizer, LlamaConfig,
                           LlamaForCausalLM, LlamaModel, LlamaTokenizer,
-                          T5Model)
+                          T5Model, PhiModel, PhiForCausalLM, PhiConfig)
 
-from llarp.policies.llama_parallel import LlamaModelParallel
+from llarp.policies.llm_parallel import LLModelParallel
 from llarp.task.utils import get_parser
 
 
@@ -114,12 +114,22 @@ class DecoderWrapper(LlmWrapper):
         cmp_llm_id = llm_id.lower()
         if llm_id is None or llm_id == "":
             # Load with a custom config.
-            self.llm = LlamaForCausalLM(LlamaConfig(**model_cfg))
+            self.llm = PhiForCausalLM(PhiConfig(**model_cfg))
         elif "llama" in cmp_llm_id:
             rope_scaling = (
                 {"type": "dynamic", "factor": 2} if use_rope_scaling else None
             )
             self.llm = LlamaForCausalLM.from_pretrained(
+                llm_id,
+                load_in_8bit=load_in_8bit,
+                rope_scaling=rope_scaling,
+                **kwargs,
+            )
+        elif "phi" in cmp_llm_id:
+            rope_scaling = (
+                {"type": "dynamic", "factor": 2} if use_rope_scaling else None
+            )
+            self.llm = PhiForCausalLM.from_pretrained(
                 llm_id,
                 load_in_8bit=load_in_8bit,
                 rope_scaling=rope_scaling,

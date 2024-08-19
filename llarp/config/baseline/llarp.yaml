@@ -26,7 +26,7 @@ habitat_baselines:
   total_num_steps: 2.0e8
   log_interval: 1
   num_checkpoints: 20
-  num_environments: 8
+  num_environments: 1  # 8
   force_torch_single_threaded: True
   eval_keys_to_include_in_name: ['predicate_task_success', 'task_progress']
   load_resume_state_config: False
@@ -36,7 +36,7 @@ habitat_baselines:
     _target_: "llarp.run.on_save_ckpt_callback"
 
   eval:
-    video_option: ["disk"]
+    video_option: []  # ["disk"]
 
   rl:
     ppo:

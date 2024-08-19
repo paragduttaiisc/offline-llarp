@@ -7,14 +7,14 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 from torch import distributed as distrib
-from transformers import LlamaModel
+from transformers import LlamaModel, PhiModel
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
 
 
-class LlamaModelParallel(LlamaModel):
+class LLModelParallel(PhiModel):
     def __init__(self, *args, model_parallel_factor, **kwargs):
         super().__init__(*args, **kwargs)
         self._model_parallel_factor = model_parallel_factor

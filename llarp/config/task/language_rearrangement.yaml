@@ -64,7 +64,7 @@ habitat:
     filter_down_num: null
     force_scene_per_worker: False
 
-    tokenizer_name: "data/hf_llama_7B/"
+    tokenizer_name: "data/hf_phi_2B/"
 
     # PDDL task settings.
     task_spec_base_path: "task/"

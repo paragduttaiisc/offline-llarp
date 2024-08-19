@@ -49,7 +49,7 @@ hierarchical_policy:
     prompts:
       habitat: ""
     prompt_suffix: ""
-    tokenizer_id: "data/hf_llama_7B/"
+    tokenizer_id: "data/hf_phi_2B/"
 
 
     llm_wrapper:
@@ -61,7 +61,7 @@ hierarchical_policy:
         lora_dropout: 0.1
       _target_: "llarp.policies.utils.DecoderWrapper"
       use_b16: True
-      llm_id: "data/hf_llama_7B/"
+      llm_id: "data/hf_phi_2B/"
       model_parallel_factor: 1
       debug_mode: False
       force_non_causal: False
