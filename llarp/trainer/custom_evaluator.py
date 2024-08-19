@@ -24,7 +24,7 @@ from habitat_baselines.common.obs_transformers import (
     apply_obs_transforms_obs_space, get_active_obs_transforms)
 from habitat_baselines.common.tensorboard_utils import TensorboardWriter
 from habitat_baselines.rl.ppo.evaluator import Evaluator, pause_envs
-from habitat_baselines.rl.ppo.policy import Policy
+from habitat_baselines.rl.ppo.policy import (Policy, PolicyActionData)
 from habitat_baselines.utils.common import (batch_obs, generate_video,
                                             get_action_space_info,
                                             inference_mode,
@@ -41,25 +41,28 @@ from llarp.task.sensors import StepCountSensor
 
 class CustomHabitatEvaluator(Evaluator):
     def evaluate_agent(
-        self,
-        agent,
-        envs,
-        config,
-        checkpoint_index,
-        step_id,
-        writer,
-        device,
-        obs_transforms,
-        env_spec,
-        rank0_keys,
+            self,
+            agent,
+            envs,
+            config,
+            checkpoint_index,
+            step_id,
+            writer,
+            device,
+            obs_transforms,
+            env_spec,
+            rank0_keys,
     ):
         if isinstance(agent.actor_critic, LlmPolicy) and hasattr(
-            envs, "action_decode_tree"
+                envs, "action_decode_tree"
         ):
             agent.actor_critic._policy_core.set_action_decode_tree(
                 envs.action_decode_tree
             )
 
+        image_list = []
+
+        # reset environments
         os.makedirs(config.habitat_baselines.checkpoint_folder, exist_ok=True)
         observations = envs.reset()
         observations = envs.post_step(observations)
@@ -84,7 +87,7 @@ class CustomHabitatEvaluator(Evaluator):
             device=device,
         )
         should_update_recurrent_hidden_states = (
-            np.prod(test_recurrent_hidden_states.shape) != 0
+                np.prod(test_recurrent_hidden_states.shape) != 0
         )
         prev_actions = torch.zeros(
             config.habitat_baselines.num_environments,
@@ -128,7 +131,7 @@ class CustomHabitatEvaluator(Evaluator):
             else:
                 assert evals_per_ep == 1
         assert (
-            number_of_eval_episodes > 0
+                number_of_eval_episodes > 0
         ), "You must specify a number of evaluation episodes with test_episode_count"
 
         # Track demo data.
@@ -143,58 +146,123 @@ class CustomHabitatEvaluator(Evaluator):
         else:
             demo_collector = None
 
+        sample_action = False
+        model_id = 1
+
+        # # load models
+        # agent.actor_critic._policy_core.action_decoder_net.load_state_dict(
+        #     torch.load(f"models/action_decoder_net_{model_id}.pt"))
+        # agent.actor_critic._policy_core.vis_bridge_net.load_state_dict(
+        #     torch.load(f"models/vis_bridge_net_{model_id}.pt"))
+        # agent.actor_critic._policy_core.action_decoder_net.eval()
+        # agent.actor_critic._policy_core.vis_bridge_net.eval()
+
         pbar = tqdm.tqdm(total=number_of_eval_episodes * evals_per_ep)
         agent.eval()
         while (
-            len(stats_episodes) < (number_of_eval_episodes * evals_per_ep)
-            and envs.num_envs > 0
+                len(stats_episodes) < (number_of_eval_episodes * evals_per_ep)
+                and envs.num_envs > 0
         ):
             current_episodes_info = envs.current_episodes()
 
             if demo_collector is not None:
                 demo_collector.collect_obs(batch)
 
+            image_list.append(batch["head_rgb"].cpu().numpy())
+            prompt = batch["vocab_lang_goal"]
+
+            # with inference_mode():
+            #     # img = batch["head_rgb"]
+            #     # images_list.append(img.cpu().numpy())
+            #     # prompt = batch["vocab_lang_goal"]
+
+            #     action_data = agent.actor_critic.act(
+            #         batch,
+            #         test_recurrent_hidden_states,
+            #         prev_actions,
+            #         not_done_masks,
+            #         deterministic=False,
+            #     )
+
+            #     if action_data.should_inserts is None:
+            #         test_recurrent_hidden_states = action_data.rnn_hidden_states
+            #         prev_actions.copy_(action_data.actions)  # type: ignore
+            #     else:
+            #         for i, should_insert in enumerate(action_data.should_inserts):
+            #             if not should_insert.item():
+            #                 continue
+            #             if should_update_recurrent_hidden_states:
+            #                 test_recurrent_hidden_states[
+            #                     i
+            #                 ] = action_data.rnn_hidden_states[i]
+            #             prev_actions[i].copy_(action_data.actions[i])  # type: ignore
+
+            # # NB: Move actions to CPU.  If CUDA tensors are
+            # # sent in to env.step(), that will create CUDA contexts
+            # # in the subprocesses.
+            # if is_continuous_action_space(env_spec.action_space):
+            #     # Clipping actions to the specified limits
+            #     step_data = [
+            #         np.clip(
+            #             a.numpy(),
+            #             env_spec.action_space.low,
+            #             env_spec.action_space.high,
+            #         )
+            #         for a in action_data.env_actions.cpu()
+            #     ]
+            # elif isinstance(env_spec.action_space, spaces.MultiDiscrete):
+            #     step_data = action_data.env_actions.cpu().numpy()
+            # else:
+            #     step_data = [a.item() for a in action_data.env_actions.cpu()]
+
+            ####################################################################
+            # starting my custom code
+            ## inputs - batch["head_rgb"], batch["vocab_lang_goal"]
+            ## outputs - step_data, action_data
+            ####################################################################
+
             with inference_mode():
-                action_data = agent.actor_critic.act(
-                    batch,
-                    test_recurrent_hidden_states,
-                    prev_actions,
-                    not_done_masks,
-                    deterministic=False,
-                )
-                if action_data.should_inserts is None:
-                    test_recurrent_hidden_states = action_data.rnn_hidden_states
-                    prev_actions.copy_(action_data.actions)  # type: ignore
+                prompt_embedding = agent.actor_critic._policy_core._llm.llm.model.embed_tokens(prompt)
+
+                batch_images = np.array(image_list).squeeze(1)
+                batch_images = torch.from_numpy(batch_images).to(torch.bfloat16)  # convert dtype to bfloat16
+                batch_images = agent.actor_critic._policy_core.vis_encoder_net.model_transforms(
+                    batch_images.permute(0, 3, 1, 2) / 255.0)
+                batch_images = batch_images.to(device)
+
+                image_embeddings = agent.actor_critic._policy_core.vis_encoder_net.net(batch_images).float()
+                image_bridge_hidden = agent.actor_critic._policy_core.vis_bridge_net.visual_fc(image_embeddings)
+                image_bridge_embeddings = agent.actor_critic._policy_core.vis_bridge_net.state_token_proj(
+                    image_bridge_hidden).unsqueeze(0)
+
+                input_tensor = torch.cat([prompt_embedding, image_bridge_embeddings], dim=1).to(torch.bfloat16)
+                outputs = agent.actor_critic._policy_core._llm.llm.model.layers[0](input_tensor)[0]
+                for i in range(1, 32):
+                    outputs = agent.actor_critic._policy_core._llm.llm.model.layers[i](outputs)[0]
+                outputs = agent.actor_critic._policy_core._llm.llm.model.final_layernorm(outputs)[:, -1, :].float()
+
+                out_hid = agent.actor_critic._policy_core.action_decoder_net.proj(outputs)
+                logits = agent.actor_critic._policy_core.action_decoder_net.linear(out_hid)
+
+                if sample_action:
+                    action_dist = torch.distributions.Categorical(logits=logits)
+                    action = action_dist.sample().item()
                 else:
-                    for i, should_insert in enumerate(action_data.should_inserts):
-                        if not should_insert.item():
-                            continue
-                        if should_update_recurrent_hidden_states:
-                            test_recurrent_hidden_states[
-                                i
-                            ] = action_data.rnn_hidden_states[i]
-                        prev_actions[i].copy_(action_data.actions[i])  # type: ignore
-            # NB: Move actions to CPU.  If CUDA tensors are
-            # sent in to env.step(), that will create CUDA contexts
-            # in the subprocesses.
-            if is_continuous_action_space(env_spec.action_space):
-                # Clipping actions to the specified limits
-                step_data = [
-                    np.clip(
-                        a.numpy(),
-                        env_spec.action_space.low,
-                        env_spec.action_space.high,
-                    )
-                    for a in action_data.env_actions.cpu()
-                ]
-            elif isinstance(env_spec.action_space, spaces.MultiDiscrete):
-                step_data = action_data.env_actions.cpu().numpy()
-            else:
-                step_data = [a.item() for a in action_data.env_actions.cpu()]
+                    action = torch.argmax(logits, dim=1).item()
+
+            step_data = [action]
+            action_data = PolicyActionData(  # dummy
+                policy_info=[{'pred_ac': '%'}],
+            )
+
+            ####################################################################
+            # ending my custom code
+            ####################################################################
 
             outputs = envs.step(step_data)
 
             observations, rewards_l, dones, infos = [list(x) for x in zip(*outputs)]
+
             # Note that `policy_infos` represents the information about the
             # action BEFORE `observations` (the action used to transition to
             # `observations`).
@@ -226,13 +294,13 @@ class CustomHabitatEvaluator(Evaluator):
                 demo_collector.collect_action(action_data.actions, infos)
             for i in range(n_envs):
                 if (
-                    ep_eval_count[
-                        (
-                            next_episodes_info[i].scene_id,
-                            next_episodes_info[i].episode_id,
-                        )
-                    ]
-                    == evals_per_ep
+                        ep_eval_count[
+                            (
+                                    next_episodes_info[i].scene_id,
+                                    next_episodes_info[i].episode_id,
+                            )
+                        ]
+                        == evals_per_ep
                 ):
                     envs_to_pause.append(i)
 
@@ -271,6 +339,8 @@ class CustomHabitatEvaluator(Evaluator):
 
                 # episode ended
                 if not not_done_masks[i].item():
+                    image_list = []
+
                     pbar.update()
                     episode_stats = {"reward": current_episode_reward[i].item()}
                     episode_stats.update(
