@@ -7,6 +7,7 @@ Script to launch Habitat Baselines trainer.
 """
 
 import os
+import sys
 import os.path as osp
 import random
 
@@ -22,6 +23,7 @@ from habitat_baselines.config.default_structured_configs import \
 import llarp.policies
 import llarp.task
 import llarp.trainer
+from llarp.offline.main import main as offline_main
 from llarp.config import default_structured_configs
 
 # Suppress gym import warnings.
@@ -47,6 +49,11 @@ def main(cfg):
     random.seed(cfg.habitat.seed)
     np.random.seed(cfg.habitat.seed)
     torch.manual_seed(cfg.habitat.seed)
+
+    if cfg.offline.is_offline and not cfg.habitat_baselines.evaluate:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.offline.gpu_id)  # set device
+        offline_main(cfg)
+        sys.exit(0)
 
     if cfg.habitat_baselines.force_torch_single_threaded and torch.cuda.is_available():
         torch.set_num_threads(1)
