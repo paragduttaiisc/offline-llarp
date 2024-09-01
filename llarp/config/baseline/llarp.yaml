@@ -23,10 +23,10 @@ habitat_baselines:
   eval_ckpt_path_dir: ""
   writer_type: 'tb'
   num_updates: -1
-  total_num_steps: 2.0e8
+  total_num_steps: 3.0e8
   log_interval: 1
-  num_checkpoints: 20
-  num_environments: 1  # 8
+  num_checkpoints: 30
+  num_environments: 15
   force_torch_single_threaded: True
   eval_keys_to_include_in_name: ['predicate_task_success', 'task_progress']
   load_resume_state_config: False
@@ -43,7 +43,7 @@ habitat_baselines:
       # PPO params
       clip_param: 0.2
       ppo_epoch: 2
-      num_mini_batch: 8
+      num_mini_batch: 5
       value_loss_coef: 0.5
       entropy_coef: 0.01
       lr: 3e-4
@@ -67,3 +67,30 @@ habitat_baselines:
       # Whether the visual encoder backbone will be trained.
       train_encoder: False
       reset_critic: False
+
+
+offline:
+  is_offline: True
+  gpu_id: 0
+  lr: 3e-5
+  gamma: 0.99
+  batch_size: 1280
+  max_grad_norm: 1.0
+  observation_size: 224
+  prompt_max_length: 30
+  sequence_length: 32
+  log_to_wandb: True
+  model_save_path: 'models/'
+
+  dataset:
+    path: 'offline_data'
+    version: 1
+    load_vis_embs: True
+
+  bc: "test"
+
+  moco:
+    num_epochs: 100
+    momentum: 0.999
+    negative_samples: 1024
+    memory_bank_size: 32768
