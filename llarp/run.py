@@ -51,7 +51,7 @@ def main(cfg):
     torch.manual_seed(cfg.habitat.seed)
 
     if cfg.offline.is_offline and not cfg.habitat_baselines.evaluate:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.offline.gpu_id)  # set device
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.offline.gpu_id)
         offline_main(cfg)
         sys.exit(0)
 

@@ -2,12 +2,15 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
+from click.core import batch
 from einops import rearrange
 from gym.vector.utils import batch_space
+from habitat_baselines.utils.common import batch_obs
 from omegaconf import DictConfig
 from vc_models.models.vit import model_utils
 from transformers import (PhiModel, PhiForCausalLM, PhiConfig)
 
+from llarp.policies.action_decoders import MlpDecoder
 from llarp.policies.utils import setup_peft_module
 from llarp.policies.visual_encoders import VisualEncoderWrapper
 
@@ -50,7 +53,6 @@ class VisualEncoder(VisualEncoderWrapper):
             return np.prod(self.net.patch_embed.grid_size), self.embd_size
         else:
             return 1, self.embd_size
-
 
 
 class VisionLanguageBridge(nn.Module):
@@ -154,7 +156,61 @@ class EncoderWrapper:
         torch.save(self.vl_bridge.state_dict(), path)
 
     def load_model(self):
-        pass
+        raise NotImplementedError
+
+
+class PolicyWrapper:
+    def __init__(
+            self,
+            encoder: EncoderWrapper,
+            device: torch.device,
+            config: DictConfig,
+            out_dim: int = 70,
+            lr: float = 3e-4,
+    ) -> None:
+        self.encoder = encoder
+        in_dim = encoder.llm.base_model.model.model.embed_tokens.weight.shape[1]
+        self.action_decoder = MlpDecoder(
+            input_dim=in_dim,
+            output_dim=out_dim,
+            hidden_size=config.action_decoder.hidden_size,
+            action_space=None,
+        )
+        self.critic = nn.Linear(config.action_decoder.hidden_size, 1)
+        self.action_decoder.to(device)
+        self.critic.to(device)
+        self.action_decoder_optimizer = optim.Adam(
+            self.action_decoder.parameters(), lr=lr
+        )
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr)
+        self.config = config
+
+    def get_actions(self, llm_embeddings):
+        action_embs = self.action_decoder.proj(llm_embeddings)
+        shape = action_embs.shape
+        actions = self.action_decoder.linear(
+            action_embs.view(-1, shape[-1])
+        ).view(shape[0], shape[1], -1)
+        return actions
+
+    def save_actor(self, path):
+        torch.save(self.action_decoder.state_dict(), path)
+
+    def save_bridge(self, path):
+        self.encoder.save_model(path)
+
+    def save_models(self, path):
+        self.save_actor(path+"/actor.pt")
+        self.save_bridge(path+"/bridge.pt")
+
+    def load_bridge(self, path):
+        raise NotImplementedError
+
+    def load_actor(self, path):
+        raise NotImplementedError
+
+    def load_models(self):
+        raise NotImplementedError
 
 
 def get_visual_encoder(

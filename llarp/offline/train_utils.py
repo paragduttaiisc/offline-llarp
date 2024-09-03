@@ -1,10 +1,13 @@
+import os
 import wandb
 import torch
+import pickle
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from omegaconf import DictConfig
 from habitat import logger
 
-from llarp.offline.model import EncoderWrapper
+from llarp.offline.model import EncoderWrapper, PolicyWrapper
 from llarp.offline.data_utils import DataBuffer, OfflineDataset
 
 
@@ -138,20 +141,130 @@ class MomentumContrast:
 class BehavioralCloning:
     def __init__(
             self,
-            primary_encoder: EncoderWrapper,
+            policy: PolicyWrapper,
+            dataset: DataBuffer,
             device: torch.device,
             config: DictConfig
     ) -> None:
-        pass
+        self.policy = policy
+        self.dataset = dataset
+        self.device = device
+        self.config = config
 
-    def __train_step(self):
-        pass
+    def __train_step(self, i, batch):
+        prompts, observations, actions, _, _, _, seq_lens = batch
+
+        # Send tensors to device
+        prompts = prompts.to(self.device)
+        observations = observations.to(self.device)
+        actions = actions.to(self.device)
+
+        # infer masks (valid items)
+        masks = torch.ones_like(actions)
+        for j, seq_len in enumerate(seq_lens):
+            masks[j, seq_len:] = 0
+
+        embeddings = self.policy.encoder.forward(prompts, observations)
+        action_logits = self.policy.get_actions(embeddings)
+        action_logprobs = torch.log_softmax(action_logits, dim=-1)
+
+        # reshape actions and pred_actions
+        actions = actions.view(-1)
+        action_logprobs = action_logprobs.view(-1, action_logprobs.shape[-1])
+        masks = masks.view(-1)
+
+        # compute loss
+        loss = F.nll_loss(input=action_logprobs, target=actions, reduction="none")
+        loss = loss * masks
+        loss = torch.sum(loss * masks) / torch.sum(masks)
+
+        # backward pass
+        self.policy.encoder.optimizer.zero_grad()
+        self.policy.action_decoder_optimizer.zero_grad()
+
+        loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(
+            self.policy.encoder.vl_bridge.parameters(),
+            self.config.offline.max_grad_norm
+        )
+        torch.nn.utils.clip_grad_norm_(
+            self.policy.action_decoder.parameters(),
+            self.config.offline.max_grad_norm
+        )
+
+        self.policy.encoder.optimizer.step()
+        self.policy.action_decoder_optimizer.step()
+
+        with torch.no_grad():
+            corrects = (actions == torch.argmax(action_logprobs, dim=-1))
+            accuracy = torch.sum(corrects) / torch.sum(masks)
+
+        if i % 10 == 0:
+            logger.info(f"Loss: {loss.item()}, Accuracy: {accuracy.item()}")
+
+        if wandb.run is not None:
+            wandb.log({"loss": loss.item(), "accuracy": accuracy.item()})
+
 
     def __train_loop(self):
-        pass
+        dataset = OfflineDataset(self.dataset.get_buffer(), self.config)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self.config.offline.batch_size,
+            shuffle=True,
+            num_workers=4,
+        )
+
+        for i, batch in enumerate(dataloader):
+            self.__train_step(i, batch)
 
     def eval(self):
-        pass
+        os.system(
+            "python llarp/run.py " + \
+            "--config-name=baseline/llarp.yaml " + \
+            "habitat_baselines.evaluate=True " + \
+            "habitat_baselines.num_environments=1 " + \
+            "habitat_baselines.rl.policy.main_agent.hierarchical_policy" + \
+            ".high_level_policy.is_eval_mode=True " + \
+            "habitat_baselines.eval_ckpt_path_dir=data/checkpoints/latest.pth " + \
+            "habitat.dataset.data_path=datasets/train_validation.pickle")
+        with open(f"data/logs/results_{self.config.offline.gpu_id}.pickle", "rb") as f:
+            data = pickle.load(f)
+        rewards, num_steps, success, progress, invalid = [], [], [], [], []
+        for key in data.keys():
+            rewards.append(data[key]["reward"])
+            num_steps.append(data[key]["num_steps"])
+            success.append(data[key]["predicate_task_success"])
+            progress.append(data[key]["task_progress"])
+            invalid.append(data[key]["num_invalid_actions"])
+
+        mean_reward = sum(rewards) / len(rewards)
+        mean_num_steps = sum(num_steps) / len(num_steps)
+        mean_success = sum(success) / len(success)
+        mean_progress = sum(progress) / len(progress)
+        mean_invalid = sum(invalid) / len(invalid)
+        if wandb.run is not None:
+            wandb.log({
+                "reward": mean_reward,
+                "num_steps": mean_num_steps,
+                "predicate_task_success": mean_success,
+                "task_progress": mean_progress,
+                "num_invalid_actions": mean_invalid
+            })
 
     def train(self):
-        pass
+        """
+        Train the encoder using momentum contrast for the specified epochs
+        """
+        num_epochs = self.config.offline.moco.num_epochs
+        for epoch in range(1, num_epochs + 1):
+            logger.info(f"Starting Epoch {epoch}/{num_epochs}")
+            if self.config.offline.dataset.load_vis_embs:
+                self.__train_loop()
+            else:
+                for _ in range(len(self.dataset)):
+                    self.__train_loop()
+            self.policy.save_models(path=self.config.offline.model_save_path +\
+                                         str(self.config.offline.gpu_id))
+            self.eval()

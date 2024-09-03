@@ -1,6 +1,7 @@
 import wandb
 
-from llarp.offline.model import (EncoderWrapper, get_llm, get_visual_encoder)
+from llarp.offline.model import (
+    EncoderWrapper, PolicyWrapper,get_llm, get_visual_encoder)
 from llarp.offline.train_utils import BehavioralCloning, MomentumContrast
 from llarp.offline.data_utils import DataBuffer, DataBufferAlt
 
@@ -15,7 +16,7 @@ def main(cfg):
         wandb.init(
             project="cuva",
             entity="statsml-csa-iisc",
-            name=f"moco_{cfg.offline.dataset.version}_{cfg.offline.lr}",
+            name=f"bcß_{cfg.offline.dataset.version}_{cfg.offline.lr}",
             config=cfg,
         )
 
@@ -31,14 +32,13 @@ def main(cfg):
         config=config.visual_bridge,
         requires_optimizer=True
     )
-    target_encoder = EncoderWrapper(
-        visual_encoder=vis_encoder,
-        llm=llm,
-        lr=cfg.offline.lr,
-        config=config.visual_bridge
+    policy = PolicyWrapper(
+        encoder=encoder,
+        device=device,
+        config=config,
+        out_dim=cfg.offline.dataset.num_actions,
+        lr=cfg.offline.lr
     )
-    # set the target encoder to be the same as the encoder
-    target_encoder.vl_bridge.load_state_dict(encoder.vl_bridge.state_dict())
 
     # get dataset
     if cfg.offline.dataset.load_vis_embs:
@@ -46,13 +46,36 @@ def main(cfg):
     else:
         dataset = DataBuffer(cfg.offline)
 
-    # pre-train the encoder
-    moco_trainer = MomentumContrast(
-        primary_encoder=encoder,
-        target_encoder=target_encoder,
-        dataset=dataset,
-        device=device,
-        config=cfg
-    )
+    if cfg.offline.train_mode == "moco":
+        target_encoder = EncoderWrapper(
+            visual_encoder=vis_encoder,
+            llm=llm,
+            lr=cfg.offline.lr,
+            config=config.visual_bridge
+        )
+        # set the target encoder to be the same as the encoder
+        target_encoder.vl_bridge.load_state_dict(encoder.vl_bridge.state_dict())
 
-    moco_trainer.train()
+        # pre-train the encoder
+        moco_trainer = MomentumContrast(
+            primary_encoder=encoder,
+            target_encoder=target_encoder,
+            dataset=dataset,
+            device=device,
+            config=cfg
+        )
+        moco_trainer.train()
+
+    elif cfg.offline.train_mode == "bc":
+        bc_trainer = BehavioralCloning(
+            policy=policy,
+            dataset=dataset,
+            device=device,
+            config=cfg
+        )
+        bc_trainer.train()
+
+    else:
+        raise NotImplementedError
+
+    wandb.finish()
