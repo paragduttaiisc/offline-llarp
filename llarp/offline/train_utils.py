@@ -198,7 +198,7 @@ class BehavioralCloning:
 
         with torch.no_grad():
             corrects = (actions == torch.argmax(action_logprobs, dim=-1))
-            accuracy = torch.sum(corrects) / torch.sum(masks)
+            accuracy = torch.sum(corrects * masks) / torch.sum(masks)
 
         if i % 10 == 0:
             logger.info(f"Loss: {loss.item()}, Accuracy: {accuracy.item()}")
@@ -228,7 +228,9 @@ class BehavioralCloning:
             "habitat_baselines.rl.policy.main_agent.hierarchical_policy" + \
             ".high_level_policy.is_eval_mode=True " + \
             "habitat_baselines.eval_ckpt_path_dir=data/checkpoints/latest.pth " + \
-            "habitat.dataset.data_path=datasets/train_validation.pickle")
+            "habitat.dataset.data_path=datasets/train_validation.pickle " + \
+            "offline.gpu_id=" + str(self.config.offline.gpu_id)
+        )
         with open(f"data/logs/results_{self.config.offline.gpu_id}.pickle", "rb") as f:
             data = pickle.load(f)
         rewards, num_steps, success, progress, invalid = [], [], [], [], []
@@ -265,6 +267,8 @@ class BehavioralCloning:
             else:
                 for _ in range(len(self.dataset)):
                     self.__train_loop()
-            self.policy.save_models(path=self.config.offline.model_save_path +\
-                                         str(self.config.offline.gpu_id))
-            self.eval()
+            if epoch % self.config.offline.eval.freq == 0:
+                self.policy.save_models(
+                    path=self.config.offline.model_save_path +\
+                         str(self.config.offline.gpu_id))
+                self.eval()

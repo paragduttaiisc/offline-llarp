@@ -85,6 +85,7 @@ offline:
 
   eval:
     sample_actions: True
+    freq: 10
 
   dataset:
     path: 'offline_data'

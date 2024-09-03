@@ -16,7 +16,7 @@ def main(cfg):
         wandb.init(
             project="cuva",
             entity="statsml-csa-iisc",
-            name=f"bcß_{cfg.offline.dataset.version}_{cfg.offline.lr}",
+            name=f"bc_{cfg.offline.dataset.version}_{cfg.offline.lr}",
             config=cfg,
         )
 
