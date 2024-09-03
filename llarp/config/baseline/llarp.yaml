@@ -71,10 +71,11 @@ habitat_baselines:
 
 offline:
   is_offline: True
-  gpu_id: 0
-  lr: 3e-5
+  train_mode: 'bc'  # moco, bc, bve
+  gpu_id: 3
+  lr: 3e-4
   gamma: 0.99
-  batch_size: 1280
+  batch_size: 1024
   max_grad_norm: 1.0
   observation_size: 224
   prompt_max_length: 30
@@ -82,12 +83,18 @@ offline:
   log_to_wandb: True
   model_save_path: 'models/'
 
+  eval:
+    sample_actions: True
+
   dataset:
     path: 'offline_data'
     version: 1
     load_vis_embs: True
+    num_actions: 70
 
-  bc: "test"
+  bc:
+    num_epochs: 100
+    vis_bridge_path: ''
 
   moco:
     num_epochs: 100

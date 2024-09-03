@@ -146,16 +146,15 @@ class CustomHabitatEvaluator(Evaluator):
         else:
             demo_collector = None
 
-        sample_action = False
-        model_id = 1
+        sample_action = config.offline.eval.sample_actions
 
-        # # load models
-        # agent.actor_critic._policy_core.action_decoder_net.load_state_dict(
-        #     torch.load(f"models/action_decoder_net_{model_id}.pt"))
-        # agent.actor_critic._policy_core.vis_bridge_net.load_state_dict(
-        #     torch.load(f"models/vis_bridge_net_{model_id}.pt"))
-        # agent.actor_critic._policy_core.action_decoder_net.eval()
-        # agent.actor_critic._policy_core.vis_bridge_net.eval()
+        # load models
+        agent.actor_critic._policy_core.action_decoder_net.load_state_dict(
+            torch.load(f"models/{config.offline.gpu_id}/actor.pt"))
+        agent.actor_critic._policy_core.vis_bridge_net.load_state_dict(
+            torch.load(f"models/{config.offline.gpu_id}/bridge.pt"))
+        agent.actor_critic._policy_core.action_decoder_net.eval()
+        agent.actor_critic._policy_core.vis_bridge_net.eval()
 
         pbar = tqdm.tqdm(total=number_of_eval_episodes * evals_per_ep)
         agent.eval()
@@ -423,7 +422,7 @@ class CustomHabitatEvaluator(Evaluator):
             all_ks.update(ep.keys())
 
         log_fname = osp.join(
-            "data/logs", config.habitat_baselines.wb.run_name + "_results.pickle"
+            "data/logs", f"results_{config.offline.gpu_id}.pickle"
         )
         with open(log_fname, "wb") as f:
             pickle.dump(stats_episodes, f)
