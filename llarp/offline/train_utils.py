@@ -344,7 +344,8 @@ class BehaviorValueEstimation:
         target_q_values = n_q_values.gather(1, n_actions.unsqueeze(1)).squeeze(1)
         target_q_values =\
             self.config.offline.gamma * target_q_values * (1 - dones) + rewards
-        loss = F.smooth_l1_loss(q_values, target_q_values, reduction="mean")
+        loss = F.smooth_l1_loss(q_values, target_q_values, reduction="none")
+        loss = torch.sum(loss * masks) / torch.sum(masks)
 
         # backward pass
         self.policy.encoder.optimizer.zero_grad()
