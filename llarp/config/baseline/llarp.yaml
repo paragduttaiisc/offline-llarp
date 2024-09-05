@@ -71,8 +71,8 @@ habitat_baselines:
 
 offline:
   is_offline: True
-  train_mode: 'bc'  # moco, bc, bve
-  gpu_id: 3
+  train_mode: 'bve'  # moco, bc, bve
+  gpu_id: 0
   lr: 3e-4
   gamma: 0.99
   batch_size: 1024
@@ -85,7 +85,7 @@ offline:
 
   eval:
     sample_actions: True
-    freq: 10
+    freq: 5
 
   dataset:
     path: 'offline_data'
@@ -93,12 +93,19 @@ offline:
     load_vis_embs: True
     num_actions: 70
 
-  bc:
-    num_epochs: 100
-    vis_bridge_path: ''
-
   moco:
     num_epochs: 100
     momentum: 0.999
     negative_samples: 1024
     memory_bank_size: 32768
+
+  bc:
+    num_epochs: 100
+    vis_bridge_path: ''
+    train_vlb: False
+
+  bve:
+    num_epochs: 100
+    vis_bridge_path: ''
+    train_vlb: False
+    target_update_freq: 50

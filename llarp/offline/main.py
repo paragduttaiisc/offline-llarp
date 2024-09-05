@@ -2,7 +2,8 @@ import wandb
 
 from llarp.offline.model import (
     EncoderWrapper, PolicyWrapper,get_llm, get_visual_encoder)
-from llarp.offline.train_utils import BehavioralCloning, MomentumContrast
+from llarp.offline.train_utils import (
+    BehavioralCloning, MomentumContrast, BehaviorValueEstimation)
 from llarp.offline.data_utils import DataBuffer, DataBufferAlt
 
 
@@ -16,7 +17,7 @@ def main(cfg):
         wandb.init(
             project="cuva",
             entity="statsml-csa-iisc",
-            name=f"bc_{cfg.offline.dataset.version}_{cfg.offline.lr}",
+            name=f"bve_{cfg.offline.dataset.version}_{cfg.offline.lr}",
             config=cfg,
         )
 
@@ -74,6 +75,30 @@ def main(cfg):
             config=cfg
         )
         bc_trainer.train()
+
+    elif cfg.offline.train_mode == "bve":
+        target_encoder = EncoderWrapper(
+            visual_encoder=vis_encoder,
+            llm=llm,
+            lr=cfg.offline.lr,
+            config=config.visual_bridge
+        )
+        target_policy = PolicyWrapper(
+            encoder=target_encoder,
+            device=device,
+            config=config,
+            out_dim=cfg.offline.dataset.num_actions,
+            lr=cfg.offline.lr
+        )
+
+        bve_trainer = BehaviorValueEstimation(
+            policy=policy,
+            target_policy=target_policy,
+            dataset=dataset,
+            device=device,
+            config=cfg
+        )
+        bve_trainer.train()
 
     else:
         raise NotImplementedError

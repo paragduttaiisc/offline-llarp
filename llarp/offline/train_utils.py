@@ -104,7 +104,7 @@ class MomentumContrast:
                 + self.config.offline.moco.momentum * target_param.data)
 
         if i % 10 == 0:
-            logger.info(f"Loss: {loss.item()}")
+            logger.info(f"Iter: {i}, Loss: {loss.item()}")
 
         if wandb.run is not None:
             wandb.log({"loss": loss.item()})
@@ -201,7 +201,7 @@ class BehavioralCloning:
             accuracy = torch.sum(corrects * masks) / torch.sum(masks)
 
         if i % 10 == 0:
-            logger.info(f"Loss: {loss.item()}, Accuracy: {accuracy.item()}")
+            logger.info(f"Iter: {i}, Loss: {loss.item()}, Accuracy: {accuracy.item()}")
 
         if wandb.run is not None:
             wandb.log({"loss": loss.item(), "accuracy": accuracy.item()})
@@ -257,7 +257,175 @@ class BehavioralCloning:
 
     def train(self):
         """
-        Train the encoder using momentum contrast for the specified epochs
+        Train an imitation learning policy for the specified epochs
+        """
+        num_epochs = self.config.offline.moco.num_epochs
+        for epoch in range(1, num_epochs + 1):
+            logger.info(f"Starting Epoch {epoch}/{num_epochs}")
+            if self.config.offline.dataset.load_vis_embs:
+                self.__train_loop()
+            else:
+                for _ in range(len(self.dataset)):
+                    self.__train_loop()
+            if epoch % self.config.offline.eval.freq == 0:
+                self.policy.save_models(
+                    path=self.config.offline.model_save_path +\
+                         str(self.config.offline.gpu_id))
+                self.eval()
+
+
+class BehaviorValueEstimation:
+    def __init__(
+            self,
+            policy: PolicyWrapper,
+            target_policy: PolicyWrapper,
+            dataset: DataBuffer,
+            device: torch.device,
+            config: DictConfig
+    ) -> None:
+        self.policy = policy
+        self.target_policy = target_policy
+        self.dataset = dataset
+        self.device = device
+        self.config = config
+        self.iter = 0
+
+    def __train_step(self, i, batch):
+
+        # update target policy
+        if self.iter % self.config.offline.bve.target_update_freq == 0:
+            self.target_policy.encoder.vl_bridge.load_state_dict(
+                self.policy.encoder.vl_bridge.state_dict()
+            )
+            self.target_policy.action_decoder.load_state_dict(
+                self.policy.action_decoder.state_dict()
+            )
+
+        self.iter += 1
+
+        # unpack batch
+        prompts, observations, actions, rewards, dones, _, seq_lens = batch
+
+        # Send tensors to device
+        prompts = prompts.to(self.device)
+        observations = observations.to(self.device)
+        actions = actions.to(self.device)
+        rewards = rewards.to(self.device)
+        dones = dones.to(self.device)
+
+        # infer masks (valid items)
+        masks = torch.ones_like(actions)
+        for j, seq_len in enumerate(seq_lens):
+            masks[j, seq_len:] = 0
+
+        embeddings = self.policy.encoder.forward(prompts, observations)
+        q_values = self.policy.get_actions(embeddings)
+        with torch.no_grad():
+            target_embeddings = self.target_policy.encoder.forward(
+                prompts, observations)
+            n_q_values = self.target_policy.get_actions(target_embeddings)
+            n_q_values = n_q_values.detach()[:, 1:, :]
+            n_q_values = torch.cat(
+                [n_q_values, torch.zeros_like(n_q_values[:, 0:1])], dim=1)
+            n_actions = torch.cat(
+                [actions[:, 1:], torch.zeros_like(actions[:, 0:1])], dim=1)
+
+        # reshape actions and pred_actions
+        actions = actions.view(-1).long()
+        n_actions = n_actions.view(-1).long()
+        masks = masks.view(-1)
+        q_values = q_values.view(-1, q_values.shape[-1])
+        n_q_values = n_q_values.view(-1, n_q_values.shape[-1])
+        rewards = rewards.view(-1)
+        dones = dones.view(-1)
+
+        # compute loss (SARSA)
+        q_values = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+        target_q_values = n_q_values.gather(1, n_actions.unsqueeze(1)).squeeze(1)
+        target_q_values =\
+            self.config.offline.gamma * target_q_values * (1 - dones) + rewards
+        loss = F.smooth_l1_loss(q_values, target_q_values, reduction="mean")
+
+        # backward pass
+        self.policy.encoder.optimizer.zero_grad()
+        self.policy.action_decoder_optimizer.zero_grad()
+
+        loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(
+            self.policy.encoder.vl_bridge.parameters(),
+            self.config.offline.max_grad_norm
+        )
+        torch.nn.utils.clip_grad_norm_(
+            self.policy.action_decoder.parameters(),
+            self.config.offline.max_grad_norm
+        )
+
+        self.policy.encoder.optimizer.step()
+        self.policy.action_decoder_optimizer.step()
+
+        with torch.no_grad():
+            corrects = (actions == torch.argmax(q_values, dim=-1))
+            accuracy = torch.sum(corrects * masks) / torch.sum(masks)
+
+        if i % 10 == 0:
+            logger.info(f"Iter: {i}, Loss: {loss.item()}, Accuracy: {accuracy.item()}")
+
+        if wandb.run is not None:
+            wandb.log({"loss": loss.item(), "accuracy": accuracy.item()})
+
+
+    def __train_loop(self):
+        dataset = OfflineDataset(self.dataset.get_buffer(), self.config)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self.config.offline.batch_size,
+            shuffle=True,
+            num_workers=4,
+        )
+
+        for i, batch in enumerate(dataloader):
+            self.__train_step(i, batch)
+
+    def eval(self):
+        os.system(
+            "python llarp/run.py " + \
+            "--config-name=baseline/llarp.yaml " + \
+            "habitat_baselines.evaluate=True " + \
+            "habitat_baselines.num_environments=1 " + \
+            "habitat_baselines.rl.policy.main_agent.hierarchical_policy" + \
+            ".high_level_policy.is_eval_mode=True " + \
+            "habitat_baselines.eval_ckpt_path_dir=data/checkpoints/latest.pth " + \
+            "habitat.dataset.data_path=datasets/train_validation.pickle " + \
+            "offline.gpu_id=" + str(self.config.offline.gpu_id)
+        )
+        with open(f"data/logs/results_{self.config.offline.gpu_id}.pickle", "rb") as f:
+            data = pickle.load(f)
+        rewards, num_steps, success, progress, invalid = [], [], [], [], []
+        for key in data.keys():
+            rewards.append(data[key]["reward"])
+            num_steps.append(data[key]["num_steps"])
+            success.append(data[key]["predicate_task_success"])
+            progress.append(data[key]["task_progress"])
+            invalid.append(data[key]["num_invalid_actions"])
+
+        mean_reward = sum(rewards) / len(rewards)
+        mean_num_steps = sum(num_steps) / len(num_steps)
+        mean_success = sum(success) / len(success)
+        mean_progress = sum(progress) / len(progress)
+        mean_invalid = sum(invalid) / len(invalid)
+        if wandb.run is not None:
+            wandb.log({
+                "reward": mean_reward,
+                "num_steps": mean_num_steps,
+                "predicate_task_success": mean_success,
+                "task_progress": mean_progress,
+                "num_invalid_actions": mean_invalid
+            })
+
+    def train(self):
+        """
+        Train the encoder using SARSA for the specified epochs
         """
         num_epochs = self.config.offline.moco.num_epochs
         for epoch in range(1, num_epochs + 1):
