@@ -49,12 +49,14 @@ def main(cfg):
     random.seed(cfg.habitat.seed)
     np.random.seed(cfg.habitat.seed)
     torch.manual_seed(cfg.habitat.seed)
+    
+    # TODO: Uncomment the following:
+    # if cfg.offline.is_offline and not cfg.habitat_baselines.evaluate:
+    #     os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.offline.gpu_id)
+    #     offline_main(cfg)
+    #     sys.exit(0)
 
-    if cfg.offline.is_offline and not cfg.habitat_baselines.evaluate:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.offline.gpu_id)
-        offline_main(cfg)
-        sys.exit(0)
-
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.offline.gpu_id)
     if cfg.habitat_baselines.force_torch_single_threaded and torch.cuda.is_available():
         torch.set_num_threads(1)
 
@@ -62,7 +64,7 @@ def main(cfg):
 
     trainer_init = baseline_registry.get_trainer(cfg.habitat_baselines.trainer_name)
     trainer = trainer_init(cfg)
-
+    
     if cfg.habitat_baselines.evaluate:
         trainer.eval()
     else:

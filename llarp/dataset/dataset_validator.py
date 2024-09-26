@@ -559,7 +559,7 @@ def start(args):
     summarize_episodes(
         eps,
         show_examples=args.only_summarize,
-        tokenizer_name="data/hf_llama_7B/",
+        tokenizer_name="data/hf_phi_7B/",
     )
     if args.only_summarize:
         return

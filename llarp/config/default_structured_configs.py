@@ -216,7 +216,7 @@ class SimpleTargetSensorConfig(LabSensorConfig):
 class LlamaVocabLangGoalSensorConfig(LabSensorConfig):
     type: str = "LlamaVocabLangGoalSensor"
     max_len: int = 30
-    tokenizer_name: str = "data/hf_llama_7B/"
+    tokenizer_name: str = "data/hf_phi_2B/"
 
 
 @dataclass

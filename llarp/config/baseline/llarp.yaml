@@ -26,7 +26,7 @@ habitat_baselines:
   total_num_steps: 3.0e8
   log_interval: 1
   num_checkpoints: 30
-  num_environments: 15
+  num_environments: 1  # 15 during training
   force_torch_single_threaded: True
   eval_keys_to_include_in_name: ['predicate_task_success', 'task_progress']
   load_resume_state_config: False
@@ -42,7 +42,7 @@ habitat_baselines:
     ppo:
       # PPO params
       clip_param: 0.2
-      ppo_epoch: 2
+      ppo_epoch: 1
       num_mini_batch: 5
       value_loss_coef: 0.5
       entropy_coef: 0.01
@@ -71,11 +71,11 @@ habitat_baselines:
 
 offline:
   is_offline: True
-  train_mode: 'bve'  # moco, bc, bve
+  train_mode: 'bc'  # moco, bc, bve
   gpu_id: 0
-  lr: 3e-4
+  lr: 1e-3
   gamma: 0.99
-  batch_size: 1024
+  batch_size: 125
   max_grad_norm: 1.0
   observation_size: 224
   prompt_max_length: 30
@@ -84,7 +84,8 @@ offline:
   model_save_path: 'models/'
 
   eval:
-    sample_actions: True
+    sample_actions: False
+    model_id: 1
     freq: 5
 
   dataset:
@@ -100,7 +101,7 @@ offline:
     memory_bank_size: 32768
 
   bc:
-    num_epochs: 100
+    num_epochs: 10
     vis_bridge_path: ''
     train_vlb: False
 

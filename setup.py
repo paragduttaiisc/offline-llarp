@@ -6,7 +6,7 @@ setuptools.setup(
     version="0.1",
     install_requires=[
         "torch==2.0.1",
-        "transformers==4.31.0",
+        "transformers==4.37.0",
         "einops==0.7.0",
         "gym==0.23.0",
         "wandb==0.13.1",

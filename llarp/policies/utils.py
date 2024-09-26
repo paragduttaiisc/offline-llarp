@@ -115,21 +115,21 @@ class DecoderWrapper(LlmWrapper):
         if llm_id is None or llm_id == "":
             # Load with a custom config.
             self.llm = PhiForCausalLM(PhiConfig(**model_cfg))
-        elif "llama" in cmp_llm_id:
-            rope_scaling = (
-                {"type": "dynamic", "factor": 2} if use_rope_scaling else None
-            )
-            self.llm = LlamaForCausalLM.from_pretrained(
-                llm_id,
-                load_in_8bit=load_in_8bit,
-                rope_scaling=rope_scaling,
-                **kwargs,
-            )
         elif "phi" in cmp_llm_id:
             rope_scaling = (
                 {"type": "dynamic", "factor": 2} if use_rope_scaling else None
             )
             self.llm = PhiForCausalLM.from_pretrained(
+                llm_id,
+                load_in_8bit=load_in_8bit,
+                rope_scaling=rope_scaling,
+                **kwargs,
+            )
+        elif "llama" in cmp_llm_id:
+            rope_scaling = (
+                {"type": "dynamic", "factor": 2} if use_rope_scaling else None
+            )
+            self.llm = LlamaForCausalLM.from_pretrained(
                 llm_id,
                 load_in_8bit=load_in_8bit,
                 rope_scaling=rope_scaling,
