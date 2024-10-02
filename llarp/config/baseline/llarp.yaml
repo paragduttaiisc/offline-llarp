@@ -84,6 +84,7 @@ offline:
   model_save_path: 'models/'
 
   eval:
+    model_path: ''
     sample_actions: False
     model_id: 1
     freq: 5

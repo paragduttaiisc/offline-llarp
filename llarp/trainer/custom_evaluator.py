@@ -169,16 +169,22 @@ class CustomHabitatEvaluator(Evaluator):
         model_id = config.offline.eval.model_id
         is_train = config.offline.train_mode == 'bc'
         is_log = config.offline.log_to_wandb
+        eval_model_dir = config.offline.eval.model_path
         # beta = 1
         # delta = 0.05
 
-        # # load models
-        # agent.actor_critic._policy_core.action_decoder_net.load_state_dict(
-        #     torch.load(f"{model_dir}/action_decoder_net_{model_id}.pt"))
-        # agent.actor_critic._policy_core.vis_bridge_net.load_state_dict(
-        #     torch.load(f"models/2/vis_bridge_net_{model_id}.pt"))
-        # agent.actor_critic._policy_core.action_decoder_net.eval()
-        # agent.actor_critic._policy_core.vis_bridge_net.eval()
+        # load models
+        if not is_train:
+            if not eval_model_dir == '':
+                model_dir = eval_model_dir
+            agent.actor_critic._policy_core.action_decoder_net.load_state_dict(
+                torch.load(f"{model_dir}/action_decoder_net_{model_id}.pt"))
+            agent.actor_critic._policy_core.vis_bridge_net.load_state_dict(
+                torch.load(f"{model_dir}/vis_bridge_net_{model_id}.pt"))
+            print(f"Loaded model {model_dir}/action_decoder_net_{model_id}.pt")
+            print(f"Loaded model {model_dir}/vis_bridge_net_{model_id}.pt")
+            agent.actor_critic._policy_core.action_decoder_net.eval()
+            agent.actor_critic._policy_core.vis_bridge_net.eval()
 
 
         # set models to train mode
@@ -267,6 +273,7 @@ class CustomHabitatEvaluator(Evaluator):
                             "gamma": gamma,
                             # "delta": delta,
                             # "beta": beta,
+                            "model_id": model_id,
                             "gpu_id": config.offline.gpu_id,
                             "batch_size": batch_size,
                             "num_trajectories": num_trajectories,
@@ -669,6 +676,7 @@ class CustomHabitatEvaluator(Evaluator):
 
         for k, v in aggregated_stats.items():
             logger.info(f"Average episode {k}: {v:.4f}")
+            print(f"Average episode {k}: {v:.4f}")
 
         writer.add_scalar(
             "eval_reward/average_reward", aggregated_stats["reward"], step_id
